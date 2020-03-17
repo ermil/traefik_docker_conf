@@ -3,8 +3,10 @@ BACKUP_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))/../backu
 # get the current directory name (without path)
 PROJECT_NAME := $(shell basename ${PWD})
 
-# il est possible de changer cette valeur en la définissant autrement dans un fichier
-# .make.env ou par un argument passé au makefile.
+# ## Il est possible de changer les valeurs affectées avec ?= en les définissant autrement dans un fichier
+# ## .make.env ou par un argument passé au makefile. Pour un fichier .make.env il faudrait ajouter:
+# include .make.env
+# export $(shell sed 's/=.*//' .make.env)
 DOCKER_COMPOSE_FILE ?= docker-compose.yml
 
 CIBLE = traefik
@@ -25,9 +27,7 @@ down:
 	@docker-compose -f $(DOCKER_COMPOSE_FILE) down
 
 backup:
-	tar -cJpvf $(BACKUP_DIR)/$(PROJECT_NAME)_$(TIMESTAMP)_conf.tar.xz -C $(CURDIR) conf $(DOCKER_COMPOSE_FILE) makefile
-
-clean:
+	tar -cJpvf $(BACKUP_DIR)/$(PROJECT_NAME)_$(TIMESTAMP)_conf.tar.xz -C $(CURDIR) conf $(DOCKER_COMPOSE_FILE) makefile .env
 
 update:
 	@docker-compose -f $(DOCKER_COMPOSE_FILE) pull $(CIBLE)
