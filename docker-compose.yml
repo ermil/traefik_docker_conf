@@ -1,0 +1,65 @@
+version: "3"
+services:
+  traefik:
+    image: traefik:v2.1 # The official Traefik docker image
+    restart: always
+    command:
+      - --accessLog.fields.defaultMode=keep
+      - --accessLog.filePath=/var/log/access.log
+      - --accessLog.filters.statusCodes=400-499
+      - --api.dashboard=true
+      - --api.debug=false
+      - --api.insecure=false
+      - --certificatesResolvers.webresolver.acme.email=$EMAIL_ADDRESS
+      - --certificatesResolvers.webresolver.acme.storage=acme.json
+      - --certificatesResolvers.webresolver.acme.httpChallenge.entryPoint=http
+      - --entryPoints.http.address=:80
+      - --entryPoints.https.address=:443
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --log.filePath=/var/log/traefik/traefik.log
+      - --log.level=INFO
+      - --providers.docker.endpoint=tcp://socket-proxy:2375
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.watch=true
+    ports:
+      - "80:80"      # The HTTP port
+      - "443:443"
+    volumes:
+      - ./conf/acme.json:/acme.json
+      - /var/log/traefik:/var/log
+      - ./conf/.htpasswd:/.htpasswd
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_network"
+      - "traefik.http.routers.traefik.rule=Host(`$SOUSDOMAINE_TRAEFIK.$DOMAINE`)"
+      - "traefik.http.routers.traefik.middlewares=redirect"
+      - "traefik.http.middlewares.redirect.redirectScheme.scheme=https"
+      - "traefik.http.routers.traefik_https.rule=Host(`$SOUSDOMAINE_TRAEFIK.$DOMAINE`)"
+      - "traefik.http.routers.traefik_https.tls=true"
+      - "traefik.http.routers.traefik_https.tls.certresolver=webresolver"
+      - "traefik.http.routers.traefik_https.middlewares=traefik-auth"
+      - "traefik.http.middlewares.traefik-auth.basicauth.usersfile=/.htpasswd"  
+      - "traefik.http.routers.traefik_https.service=api@internal"
+    networks:
+      - traefik_network
+      - back-end
+    depends_on:
+      - socket-proxy
+  socket-proxy:
+      image: tecnativa/docker-socket-proxy
+      container_name: socket-proxy
+      restart: unless-stopped
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+      environment:
+          CONTAINERS: 1
+      networks:
+        - back-end
+networks:
+  traefik_network:
+    external: true
+  back-end:
+    driver: bridge
+    
+      

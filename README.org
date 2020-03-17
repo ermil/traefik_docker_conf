@@ -1,0 +1,70 @@
+#+TITLE:   Traefik Docker configuration
+
+* Configuration du docker
+[[https://docs.traefik.io/][Traefik]] est un proxy inversé qui permet aux utilisateurs d'internet d'accéder aux différents service sur le serveur en passant par celui-ci. Autrement, il ne serait pas possible d'avoir plusieurs sites web à la même adresse. Le proxy inverse reçoit donc les requêtes et en fonction de l'adresse, les achemine vers le bon service/docker. Dans ce cas-ci, il s'agit des différents sites web. Il est aussi utilisé pour générer les certificats SSL pour encrypter la communication et permettre d'ajouter une authentification pour accéder à un service. Une particularité de Traefik "découvre" les instances qui sont ajoutées, modifiées, retirées pour modifier son comportement en temps réel via les événements sur le socket des dockers /var/run/docker.sock.
+
+** Configuration de l'environnement
+Le fichier d'environnement pour Traefik sert uniquement à concentrer tous les éléments nécessaires à sont déploiement en un seul endroit et que cela puisse être spécifique à chaque instance. 
+
+Le fichier ~.env~ ([[https://docs.docker.com/compose/env-file/][documentation]]) déclare des variables d'environnement qui seront utilisées pour lire/interpréter le fichier [[file:docker-compose.yml]]. 
+
+Afin de déployer l'API, les variables d'environnement ~$DOMAINE~ et ~$SOUSDOMAINE_TRAEFIK~ sont employées. Le champ ~$EMAIL_ADDRESS~ est nécessaire pour l'émission des certificats SSL par [[https://letsencrypt.org/][Let's Encrypt]].
+** Configuration de Traefik
+Il y a deux volets à la configuration de Traefik, une configuration statique pour quelques éléments de base qui ne changent pas et la configuration dynamique qui est plutôt répartie dans les labels des différents  [[file:docker-compose.yml]] des services qui passent par Traefik. 
+*** Statique
+La configuration peut être passée soit par un fichier traefik.toml, la section command dans [[file:docker-compose.yml]], ou des variables d'environnement. Depuis la version 2 de traefik il n'est plus possible de répartir la configuration statique entre ces différents formats. 
+
+En utilisant un fichier ~traefik.toml~, ou ~.yaml~, je n'ai pas réussi à y utiliser des variables d'environnement. Les deux autres alternatives sont donc nécessaires pour pouvoir définir l'adresse courriel dans une variable d'environnement pour la génération des certificats avec Let' Encrypt. Utiliser les variables d'environnement permet de sortir toutes cette configuration dans un fichier à part et de rendre le docker-compose plus léger, mais les définir dans celui-ci permet de mettre à jour cette configuration seulement avec un ~docker-compose up -d~ sans avoir besoin de l'arrêter explicitement avant. J'y suis donc allé avec des arguments transmis en ligne de commande au client traefik avec les arguments dans la section command. Celles-ci peuvent être listés par le client avec la commande 
+#+begin_src 
+docker exec -it <id> traefik --help
+#+end_src
+où ~id~ peut être déterminé avec la commande ~docker ps~.
+
+La configuration statique réalisée défini les paramètres pour:
+- accessLog : les connexions au serveur
+- api : une interface web permettant de voir les services activés
+- certificatesResolvers : la configuration pour générer les certificats SSL
+- entryPoints : les ports sur lesquels les données sont acceptées
+- updates and data : settings généraux
+- log : de traefik
+- docker : réglages déterminant comment les services sont découverts
+
+*** Dynamique
+La configuration dynamique se trouve dans chacun des dockers qui s'interface avec traefik, sous la section labels. L'ensemble des labels disponibles pour les dockers sont présentés sur cette [[https://docs.traefik.io/reference/dynamic-configuration/docker/][page]]. 
+Pour chacun des docker, les opérations suivantes sont réalisées pour tous les dockers:
+- Les rendre visible a traefik.
+- Spécifier à traefik sur quel réseau communiquer avec le docker, ce qui doit correspondre au moins un des réseau la section networks du docker-compose de traefik et du service cible.
+- Définir l'adresse web qui doit être utilisée pour qu'un paquet soit acheminé vers ce service.
+- Définir une redirection de http vers https.
+- Activer la génération d'un certificat SSL.
+- La définition d'un service, s'il n'est pas défini, celui par défaut de loadbalancer.server.port=80 est généré par traefik pour chaque /router/.
+
+Dans le cas de ce docker(traefik), il y a aussi :
+- L'activation du service d'API.
+- L'ajout d'une étape d'authentification avant de pouvoir accéder au service.
+** Éléments de sécurité
+*** Le socket du docker 
+Le socket de daemon docker permet à traefik de savoir dès qu'il y a un événements consernant les dockers. Soit une création, un retrait, une modification et c'est ce qui lui permet d'être aussi modulable. 
+
+Accéder à ce socket sans restriction à partir du docker pourrait être dangereux si Traefik est attaqué. En écrivant dans ce socket, il serait possible de créer des conteneurs arbitraires et cela pourrait être dangereux pour le système hôte (voir [[https://docs.docker.com/engine/security/security/#docker-daemon-attack-surface][docker daemon attack surface]]). À cette fin, un autre proxy a été ajouté entre le socket et traefik. Cela correspond au service socket-proxy dans le fichier docker-compose. Celui-ci agit à titre d'intermédiaire entre le socket et Traefik. Il ne laisse passer que les requêtes à celui-ci de type GET. Une requête cherchant à écrire via traefik est donc immédiatement laissé tombée. Une mesure de sécurité supplémentaire qui pourrait être implémentée serait d'ajouter des certificats pour pouvoir se connecter au socket.
+
+*** Mots de passe
+Afin d'utiliser l'authentification basique des utilisateurs HTTP, il faut crééer une banque de ceux-ci dans un fichier et que les mots de passe ne soient pas écris en clair. On utilise l'utilitaire htpasswd à cette fin. Celui-ci permet d'ajouter ou modier un utilisateur au fichier spécifié utilisé par Traefik. Le mot de passe à affecté est par la suite demandé dans la ligne de commande puis encrypté dans le fichier.
+#+begin_src 
+htpasswd conf/.htpasswd <user>
+#+end_src
+** amce.json
+Il faut restreindre les droits d'accès au fichier acme.json à seulement le propriétaire du fichier. Il faut donc chager les droits avec:
+#+begin_src 
+chmod 600 conf/acme.json
+#+end_src
+** Docker-compose
+Quelques autres remarques sur le contenu du docker-compose.
+*** ports
+Les ports permettent d'exposer certains port du conteneur à l'hôte. Seulement traefik a besoin de le faire. Les autres conteneurs n'ont aucune connexion à l'hôte. Ils sont uniquement connecté au réseau pour les dockers. La notation des ports est ~"HOST:CONTAINER"~. Dans ce cas-ci seulement les ports http et https sont connecté à l'hôte.
+** Flow git
+Afin de partager mes projet et pouvoir les réutiliser pour différents serveur, je partage qu'une version générique. Afin de la maintenir à jour à partir de ma configuration spécifique que j'utilise sur mon serveur, je défini un /merge driver/ qui permet de toujours conserver la version de la branche d'un fichier. Je défini donc des configurations génériques sur un branche et mes configurations spécifiques sur les branches de développement et production. Le ficher [[.gitattributes]] permet de définir chacun des fichiers qui doivent utiliser ce /merge driver/ de manière à ce que chaque branche ait ses versions spécifiques des fichiers. La commande suivant crée le /merge driver/ au niveau du projet ou dans la configuration du système avec l'option --global.
+#+begin_src bash
+git config [--global] merge.ours.driver true
+#+end_src
+Pour plus de détails pour que cela fonctionne bien, voir [[https://github.com/ermil/gitflow#public-repo-without-personnal-informations][mon flow git]].

@@ -1,0 +1,3 @@
+.env       merge=ours
+acme.json  merge=ours
+.htpasswd  merge=ours
