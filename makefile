@@ -1,7 +1,8 @@
 
 BACKUP_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))/../backup
 # get the current directory name (without path)
-PROJECT_NAME := $(shell basename ${PWD})
+PROJECT_NAME := $(lastword  $(subst /, , $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))))
+
 
 # ## Il est possible de changer les valeurs affectées avec ?= en les définissant autrement dans un fichier
 # ## .make.env ou par un argument passé au makefile. Pour un fichier .make.env il faudrait ajouter:
