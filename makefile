@@ -17,8 +17,9 @@ TIMESTAMP := $(shell date +%Y%m%d%H%M%S)
 init:
 	if [ "$$(systemctl is-active docker)" != active ]; then sudo systemctl start docker.service; else echo "docker already running"; fi
 	if [ "$$(docker network ls --filter "name=^traefik_network$$" --format '{{.Name}}')" != "traefik_network" ]; then docker network create traefik_network; else echo "traefik_network already exist"; fi
+	chmod 600 conf/acme.json
 
-up: init
+up:
 	@docker-compose -f $(DOCKER_COMPOSE_FILE) up -d $(CIBLE)
 
 stop:
